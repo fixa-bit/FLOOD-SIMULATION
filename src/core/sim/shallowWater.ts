@@ -33,16 +33,22 @@ const MIN_DEPTH_METERS = 0.001; // 1 mm dry threshold
 export function calculateInflowDischarge(
   inflow: InflowPoint,
   timeSeconds: number,
-  totalDurationSeconds: number,
-  preset: HydrographPreset
+  eventDurationSeconds: number,
+  preset: HydrographPreset,
+  startSeconds = 0
 ): number {
+  timeSeconds -= startSeconds;
+  if (timeSeconds < 0) return 0;
   const base = inflow.baseDischarge;
   const peakMult = inflow.peakMultiplier ?? 2.5;
 
   if (preset === 'custom' && inflow.customHydrograph && inflow.customHydrograph.length > 0) {
     const pts = inflow.customHydrograph;
+    if (timeSeconds < pts[0].timeSeconds) return 0;
+    if (pts.length > 1 && timeSeconds >= pts[pts.length - 1].timeSeconds) return 0;
     if (timeSeconds <= pts[0].timeSeconds) return pts[0].dischargeM3PerSec;
-    if (timeSeconds >= pts[pts.length - 1].timeSeconds) return pts[pts.length - 1].dischargeM3PerSec;
+    if (timeSeconds > pts[pts.length - 1].timeSeconds) return 0;
+    if (timeSeconds === pts[pts.length - 1].timeSeconds) return pts[pts.length - 1].dischargeM3PerSec;
 
     // Linear interpolation
     for (let i = 0; i < pts.length - 1; i++) {
@@ -54,13 +60,15 @@ export function calculateInflowDischarge(
     return base;
   }
 
+  if (timeSeconds >= eventDurationSeconds) return 0;
+
   if (preset === 'constant') {
     return base;
   }
 
   if (preset === 'rising_falling') {
     // Triangular/gamma shaped hydrograph peaking at 35% of total duration
-    const peakTime = totalDurationSeconds * 0.35;
+    const peakTime = eventDurationSeconds * 0.35;
     const baseFlow = base * 0.2;
     const peakFlow = base * peakMult;
 
@@ -70,7 +78,7 @@ export function calculateInflowDischarge(
       return baseFlow + (peakFlow - baseFlow) * Math.sin((tNorm * Math.PI) / 2);
     } else {
       // Falling recession limb
-      const decayTime = totalDurationSeconds - peakTime;
+      const decayTime = eventDurationSeconds - peakTime;
       const tRecession = (timeSeconds - peakTime) / decayTime;
       const expDecay = Math.exp(-3.0 * tRecession);
       return baseFlow + (peakFlow - baseFlow) * expDecay;
@@ -79,12 +87,12 @@ export function calculateInflowDischarge(
 
   if (preset === 'flash_flood') {
     // Sharp rapid rise peaking at 15% of duration with steep wave front
-    const peakTime = totalDurationSeconds * 0.15;
+    const peakTime = eventDurationSeconds * 0.15;
     const peakFlow = base * peakMult * 1.5;
     if (timeSeconds < peakTime) {
       return base + (peakFlow - base) * Math.pow(timeSeconds / peakTime, 2);
     } else {
-      const tPost = (timeSeconds - peakTime) / (totalDurationSeconds - peakTime);
+      const tPost = (timeSeconds - peakTime) / (eventDurationSeconds - peakTime);
       return base + (peakFlow - base) * Math.exp(-4.5 * tPost);
     }
   }
@@ -412,7 +420,8 @@ export class HydraulicSimulator {
       this.config.rainfall.intensityMmPerHour > 0 &&
       this.currentTime < this.config.rainfall.durationSeconds
     ) {
-      rainRateMetersPerSec = (this.config.rainfall.intensityMmPerHour / 1000.0) / 3600.0;
+      const rainySeconds = Math.max(0, Math.min(dt, this.config.rainfall.durationSeconds - this.currentTime));
+      rainRateMetersPerSec = (this.config.rainfall.intensityMmPerHour / 1000.0) / 3600.0 * rainySeconds / dt;
       this.totalRainfallVolumeM3 += rainRateMetersPerSec * this.cellArea * this.fluidCellCount * dt;
     }
 
@@ -443,8 +452,9 @@ export class HydraulicSimulator {
         const discharge = calculateInflowDischarge(
           inflow,
           this.currentTime,
-          this.config.duration,
-          this.config.inflowPreset
+          this.config.hydrographDurationSeconds ?? 3600,
+          this.config.inflowPreset,
+          this.config.hydrographStartSeconds ?? 0
         );
 
         if (discharge > 0) {

@@ -9,6 +9,7 @@ import { StatisticsBar } from '../ui/panels/StatisticsBar';
 import { DepthLegend } from '../ui/panels/DepthLegend';
 import { InspectPopup } from '../ui/panels/InspectPopup';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { DataSourceBanner } from '../ui/panels/DataSourceLabels';
 
 export interface FloodSimulationProps {
   bounds?: BoundingBox;
@@ -96,8 +97,10 @@ export const FloodSimulation: React.FC<FloodSimulationProps> = ({
   return (
     <div
       style={customStyle}
-      className={`relative w-full h-full overflow-hidden bg-slate-950 font-sans ${className}`}
+      className={`relative flex flex-col w-full h-full overflow-hidden bg-slate-950 font-sans ${className}`}
     >
+      <DataSourceBanner />
+      <div className="relative flex-1 min-h-0">
       {/* 2D Area Picker or 3D Simulation Viewport */}
       {is2DMode ? (
         <AreaPickerMap />
@@ -134,6 +137,7 @@ export const FloodSimulation: React.FC<FloodSimulationProps> = ({
       {/* Bottom Animation Player Bar */}
       <div className="absolute bottom-0 left-0 right-0 z-30">
         <AnimationPlayer />
+      </div>
       </div>
     </div>
   );

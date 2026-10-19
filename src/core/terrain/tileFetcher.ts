@@ -1,4 +1,4 @@
-import { BoundingBox, DemData } from '../types';
+import { BoundingBox, DataSource, DemData } from '../types';
 import { decodeTerrariumPixel } from './demDecoder';
 import {
   calculateBoundsDimensions,
@@ -143,7 +143,8 @@ export async function fetchAndProcessDem(
   );
 
   onProgress?.(10, 'Checking local terrain cache...');
-  const cachedElevations = await getCachedDem(cacheKey);
+  const cached = await getCachedDem(cacheKey);
+  const cachedElevations = cached?.elevation;
 
   const { widthMeters, heightMeters } = calculateBoundsDimensions(bounds);
   const dx = widthMeters / (targetResolution - 1);
@@ -167,6 +168,7 @@ export async function fetchAndProcessDem(
       elevation: cachedElevations,
       minElevation: minE,
       maxElevation: maxE,
+      source: cached!.source,
     };
   }
 
@@ -229,6 +231,12 @@ export async function fetchAndProcessDem(
   }
 
   let rawElevations: Float32Array;
+  const tileCount = tileMap.size;
+  const source: DataSource = validTileCount === 0
+    ? { kind: 'synthetic', label: 'Synthetic terrain — demo model', details: 'Elevation tiles were unavailable. This generated valley does not represent the selected location.' }
+    : validTileCount < tileCount
+      ? { kind: 'mixed', label: 'Terrain includes synthetic elevation patches', details: `${tileCount - validTileCount} of ${tileCount} tiles unavailable; missing samples were replaced with 50 m elevations.` }
+      : { kind: 'remote', label: 'AWS Terrarium elevation tiles', details: 'Resampled and depression-filled terrain.' };
 
   // If network failed completely or no tiles returned (e.g. offline / mock test)
   if (validTileCount === 0) {
@@ -292,7 +300,7 @@ export async function fetchAndProcessDem(
   }
 
   // Cache in IndexedDB
-  await setCachedDem(cacheKey, processedElevations);
+  await setCachedDem(cacheKey, processedElevations, source);
   onProgress?.(100, 'Terrain ready');
 
   return {
@@ -304,5 +312,6 @@ export async function fetchAndProcessDem(
     elevation: processedElevations,
     minElevation: minElev,
     maxElevation: maxElev,
+    source,
   };
 }

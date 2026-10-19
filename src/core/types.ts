@@ -15,6 +15,12 @@ export type BoundaryType = 'open' | 'closed';
 
 export type HydrographPreset = 'constant' | 'rising_falling' | 'flash_flood' | 'custom';
 
+export interface DataSource {
+  kind: 'remote' | 'synthetic' | 'mixed' | 'unknown' | 'derived';
+  label: string;
+  details?: string;
+}
+
 export interface HydrographPoint {
   timeSeconds: number;
   dischargeM3PerSec: number;
@@ -63,6 +69,9 @@ export interface SimulationConfig {
   inflows: InflowPoint[];
   /** Hydrograph curve type */
   inflowPreset: HydrographPreset;
+  /** Preset event window, independent of the observation/run duration. Defaults: 3600s, start at 0. */
+  hydrographDurationSeconds?: number;
+  hydrographStartSeconds?: number;
   /** Rainfall input */
   rainfall: RainfallConfig;
   /** CFL stability safety factor (0.1 to 0.9, default 0.7) */
@@ -95,6 +104,20 @@ export interface SimulationFrame {
   stats: FrameStats;
 }
 
+/** Event envelope, updated at every solver step, independently of playback frames. */
+export interface SimulationResult {
+  peakDepth: Float32Array;
+  /** Stats assessed on the maximum-depth envelope; volume is not a simultaneous volume. */
+  envelopeStats: FrameStats;
+  maximumFloodedAreaKm2: number;
+  floodDepthThreshold: number;
+  /** -1 means never reached the threshold; 0 means wet at the start. Absent on older runs. */
+  arrivalTimeSeconds?: Float64Array;
+  floodDurationSeconds?: Float64Array;
+  wetAtEnd?: Uint8Array;
+  observedDurationSeconds?: number;
+}
+
 export interface DemData {
   width: number;
   height: number;
@@ -112,6 +135,7 @@ export interface DemData {
   initialWaterDepth?: Float32Array;
   /** Binary mask where 1 represents natural river channel bed */
   riverMask?: Uint8Array;
+  source?: DataSource;
 }
 
 export interface OsmBuilding {
@@ -194,6 +218,7 @@ export type WorkerOutMessage =
       type: 'FINISHED';
       totalFrames: number;
       summaryStats: FrameStats;
+      result: SimulationResult;
     }
   | {
       type: 'ERROR';

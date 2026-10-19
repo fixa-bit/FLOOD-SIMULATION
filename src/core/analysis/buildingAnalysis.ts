@@ -1,4 +1,4 @@
-import { BoundingBox, OsmBuilding, OsmRoad } from '../types';
+import { BoundingBox, DataSource, OsmBuilding, OsmRoad } from '../types';
 import { haversineDistance } from '../terrain/geoUtils';
 
 const OVERPASS_ENDPOINTS = [
@@ -35,7 +35,7 @@ export function generateSyntheticStructures(
 
     const gx = Math.floor(normX * (width - 1));
     const gy = Math.floor(normY * (height - 1));
-    const elev = elevation[gy * width + gx] || 50;
+    const elev = Number.isFinite(elevation[gy * width + gx]) ? elevation[gy * width + gx] : 50;
 
     const lon = bounds.west + normX * (bounds.east - bounds.west);
     const lat = bounds.north - normY * (bounds.north - bounds.south);
@@ -105,7 +105,7 @@ export async function fetchOsmStructures(
   width: number,
   height: number,
   onProgress?: (text: string) => void
-): Promise<{ buildings: OsmBuilding[]; roads: OsmRoad[] }> {
+): Promise<{ buildings: OsmBuilding[]; roads: OsmRoad[]; source: DataSource }> {
   const query = `
     [out:json][timeout:15];
     (
@@ -169,7 +169,7 @@ export async function fetchOsmStructures(
 
             const gx = Math.min(width - 1, Math.max(0, Math.floor(normX * (width - 1))));
             const gy = Math.min(height - 1, Math.max(0, Math.floor(normY * (height - 1))));
-            const elev = elevation[gy * width + gx] || 50;
+            const elev = Number.isFinite(elevation[gy * width + gx]) ? elevation[gy * width + gx] : 50;
 
             const heightVal = el.tags['building:levels']
               ? parseFloat(el.tags['building:levels']) * 3.2
@@ -210,7 +210,7 @@ export async function fetchOsmStructures(
       }
 
       if (buildings.length > 5 || roads.length > 0) {
-        return { buildings, roads };
+        return { buildings, roads, source: { kind: 'remote', label: 'OpenStreetMap buildings/roads', details: 'Overpass query capped at 200 ways; coverage may be incomplete.' } };
       }
     } catch {
       // Try next endpoint or fallback
@@ -219,6 +219,7 @@ export async function fetchOsmStructures(
   }
 
   // Graceful fallback to synthetic structures
-  onProgress?.('Using local GIS structures fallback...');
-  return generateSyntheticStructures(bounds, elevation, width, height);
+  onProgress?.('Using synthetic demo buildings and roads...');
+  return { ...generateSyntheticStructures(bounds, elevation, width, height),
+    source: { kind: 'synthetic', label: 'Synthetic buildings/roads — demo assets', details: 'OSM infrastructure unavailable. Counts and locations are generated, not a real asset inventory.' } };
 }

@@ -20,6 +20,7 @@ import { useFloodStore } from '../store/useFloodStore';
 import { PRESET_AREAS } from '../../core/terrain/presetAreas';
 import { HydrographPreset } from '../../core/types';
 import { TextureMode } from '../../viewer/textureFetcher';
+import { ScenarioPanel } from './ScenarioPanel';
 
 export const SidePanel: React.FC<{
   onCameraPreset?: (preset: 'top' | 'oblique' | 'flood') => void;
@@ -131,6 +132,7 @@ export const SidePanel: React.FC<{
 
       {/* Scrollable Accordions */}
       <div className="flex-1 overflow-y-auto divide-y divide-slate-800/80 p-2 space-y-1">
+        <ScenarioPanel />
         {/* Section 1: Area Selection */}
         <div className="pt-1">
           <button
@@ -189,6 +191,19 @@ export const SidePanel: React.FC<{
                 <label className="text-[11px] text-slate-400 uppercase font-semibold block mb-1">
                   Hydrograph Curve
                 </label>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <label className="text-[11px] text-slate-400">Event starts (min)
+                    <input aria-label="Event starts (min)" type="number" min="0" step="any" value={(config.hydrographStartSeconds ?? 0) / 60}
+                      onChange={e => updateConfig({ hydrographStartSeconds: Math.max(0, Number(e.target.value)) * 60 })}
+                      className="w-full p-2 mt-1 rounded bg-slate-950 border border-slate-700 text-white" />
+                  </label>
+                  <label className="text-[11px] text-slate-400">Event duration (min)
+                    <input aria-label="Event duration (min)" type="number" min="0.01" step="any" value={(config.hydrographDurationSeconds ?? 3600) / 60}
+                      onChange={e => updateConfig({ hydrographDurationSeconds: Math.max(0.01, Number(e.target.value)) * 60 })}
+                      className="w-full p-2 mt-1 rounded bg-slate-950 border border-slate-700 text-white" />
+                  </label>
+                  <p className="col-span-2 text-[10px] text-slate-400">Preset inflow is zero outside this event window. Run duration controls how long you observe it. Custom curves use their own time-series length.</p>
+                </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   {(['rising_falling', 'constant', 'flash_flood'] as HydrographPreset[]).map((type) => (
                     <button
@@ -521,7 +536,7 @@ export const SidePanel: React.FC<{
         {/* Primary Simulation Action Button */}
         <button
           onClick={startSimulation}
-          disabled={status === 'simulating' || !dem}
+          disabled={status === 'simulating' || status === 'loading_terrain' || !dem}
           className={`w-full py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-xl ${
             status === 'simulating'
               ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
@@ -559,7 +574,7 @@ export const SidePanel: React.FC<{
           <button
             onClick={handleDownloadSummary}
             className="p-2 bg-slate-800/90 hover:bg-slate-700 text-slate-300 rounded-xl text-xs flex flex-col items-center justify-center gap-1 border border-slate-700/80 transition"
-            title="Download JSON Summary Report"
+            title="Download whole-event summary (final state included separately)"
           >
             <Download className="w-3.5 h-3.5 text-sky-400" />
             <span className="text-[10px]">Report</span>
@@ -568,7 +583,7 @@ export const SidePanel: React.FC<{
           <button
             onClick={handleDownloadGeoJson}
             className="p-2 bg-slate-800/90 hover:bg-slate-700 text-slate-300 rounded-xl text-xs flex flex-col items-center justify-center gap-1 border border-slate-700/80 transition"
-            title="Export GeoJSON Flood Extent"
+            title="Export maximum flood extent across the whole event"
           >
             <Download className="w-3.5 h-3.5 text-sky-400" />
             <span className="text-[10px]">GeoJSON</span>

@@ -44,9 +44,12 @@ export async function loadDrapedTexture(
   // Fetch tiles
   const fetchPromises: Promise<void>[] = [];
   let successfulTiles = 0;
+  let tileCount = 0;
+  let settled = false;
 
   for (let ty = minY; ty <= maxY; ty++) {
     for (let tx = minX; tx <= maxX; tx++) {
+      tileCount++;
       const url =
         mode === 'satellite'
           ? `${ESRI_SATELLITE_URL}/${zoom}/${ty}/${tx}`
@@ -56,6 +59,7 @@ export async function loadDrapedTexture(
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
+          if (settled) { resolve(); return; }
           // Calculate destination rectangle on canvas
           const n = Math.pow(2, zoom);
           const tileWest = (tx / n) * 360 - 180;
@@ -93,6 +97,7 @@ export async function loadDrapedTexture(
     Promise.all(fetchPromises),
     new Promise((r) => setTimeout(r, 5000)),
   ]);
+  settled = true;
 
   // If no tiles succeeded (offline), generate procedural texture
   if (successfulTiles === 0) {
@@ -100,6 +105,11 @@ export async function loadDrapedTexture(
   }
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.userData.source = successfulTiles === 0
+    ? { kind: 'synthetic', label: 'Synthetic display texture — not imagery', details: 'Procedural colors used because map/satellite tiles were unavailable. This is not a photograph.' }
+    : successfulTiles < tileCount
+      ? { kind: 'mixed', label: 'Partial imagery with blank patches', details: `${successfulTiles} of ${tileCount} display tiles loaded.` }
+      : { kind: 'remote', label: mode === 'satellite' ? 'Esri satellite imagery' : 'OpenStreetMap display tiles' };
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.minFilter = THREE.LinearMipmapLinearFilter;

@@ -1,14 +1,24 @@
-import { BoundingBox, FrameStats, OsmBuilding, OsmRoad, SimulationFrame } from '../types';
+import { BoundingBox, FrameStats, OsmBuilding, OsmRoad, SimulationFrame, SimulationResult } from '../types';
+import { sampleRoads } from './roadExposure';
+import { DataSources } from './dataSources';
 
 export interface FloodSummaryReport {
   timestamp: string;
   bounds: BoundingBox;
   simulatedDurationSeconds: number;
   stats: FrameStats;
+  /** Final simultaneous state; event maxima are in inundationStats/impactStats. */
+  finalStateStats: FrameStats;
+  resultScope: 'whole_event';
+  floodDepthThresholdMeters: number;
+  dataSources?: DataSources;
+  eventTiming?: { startSeconds: number; durationSeconds: number; preset: string };
+  timingAnalysis: { available: boolean; observedDurationSeconds: number; method: string; stillWetCellCount: number | null };
   inundationStats: {
     peakWaterDepthMeters: number;
     meanWaterDepthMeters: number;
     floodedAreaKm2: number;
+    maximumSimultaneousFloodedAreaKm2: number;
     totalWaterVolumeM3: number;
     massBalanceErrorPct: number;
   };
@@ -28,11 +38,14 @@ export function generateSummaryReport(
   bounds: BoundingBox,
   lastFrame: SimulationFrame,
   buildings: OsmBuilding[],
-  roads: OsmRoad[]
+  roads: OsmRoad[],
+  result: SimulationResult,
+  grid: { width: number; height: number },
+  context: { sources?: DataSources; eventTiming?: FloodSummaryReport['eventTiming'] } = {}
 ): FloodSummaryReport {
-  const totalRoadsKm = roads.reduce((sum, r) => sum + r.lengthMeters, 0) / 1000.0;
-  const floodedRoadsKm = lastFrame.stats.affectedRoadsKm;
-  const floodedBldgs = lastFrame.stats.affectedBuildingsCount;
+  const totalRoadsKm = sampleRoads(roads, bounds, grid.width, grid.height).reduce((sum, sample) => sum + sample.lengthMeters, 0) / 1000;
+  const floodedRoadsKm = result.envelopeStats.affectedRoadsKm;
+  const floodedBldgs = result.envelopeStats.affectedBuildingsCount;
   const totalBldgs = buildings.length;
 
   return {
@@ -40,10 +53,22 @@ export function generateSummaryReport(
     bounds,
     simulatedDurationSeconds: lastFrame.simulatedTimeSeconds,
     stats: lastFrame.stats,
+    finalStateStats: lastFrame.stats,
+    resultScope: 'whole_event',
+    floodDepthThresholdMeters: result.floodDepthThreshold,
+    dataSources: context.sources,
+    eventTiming: context.eventTiming,
+    timingAnalysis: {
+      available: !!result.arrivalTimeSeconds,
+      observedDurationSeconds: result.observedDurationSeconds ?? lastFrame.simulatedTimeSeconds,
+      method: 'First arrival and cumulative duration at/above the flood threshold, with linear crossing estimates within solver steps. Duration ends at the observation limit.',
+      stillWetCellCount: result.wetAtEnd ? result.wetAtEnd.reduce((a, b) => a + b, 0) : null,
+    },
     inundationStats: {
-      peakWaterDepthMeters: Number(lastFrame.stats.maxDepth.toFixed(2)),
+      peakWaterDepthMeters: Number(result.envelopeStats.maxDepth.toFixed(2)),
       meanWaterDepthMeters: Number(lastFrame.stats.meanDepth.toFixed(3)),
-      floodedAreaKm2: Number(lastFrame.stats.floodedAreaKm2.toFixed(3)),
+      floodedAreaKm2: Number(result.envelopeStats.floodedAreaKm2.toFixed(3)),
+      maximumSimultaneousFloodedAreaKm2: Number(result.maximumFloodedAreaKm2.toFixed(3)),
       totalWaterVolumeM3: Math.round(lastFrame.stats.totalWaterVolumeM3),
       massBalanceErrorPct: Number(lastFrame.stats.massConservationErrorPct.toFixed(2)),
     },
@@ -72,8 +97,8 @@ export function exportFloodExtentGeoJson(
   const visited = new Uint8Array(width * height);
 
   // Group connected flooded cells or cell bounding boxes
-  const cellLonStep = (bounds.east - bounds.west) / width;
-  const cellLatStep = (bounds.north - bounds.south) / height;
+  const cellLonStep = (bounds.east - bounds.west) / Math.max(1, width - 1);
+  const cellLatStep = (bounds.north - bounds.south) / Math.max(1, height - 1);
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -86,12 +111,13 @@ export function exportFloodExtentGeoJson(
           runEnd++;
         }
 
-        const minLon = bounds.west + x * cellLonStep;
-        const maxLon = bounds.west + runEnd * cellLonStep;
-        const maxLat = bounds.north - y * cellLatStep;
-        const minLat = bounds.north - (y + 1) * cellLatStep;
+        const minLon = width === 1 ? bounds.west : bounds.west + Math.max(0, x - 0.5) * cellLonStep;
+        const maxLon = width === 1 ? bounds.east : bounds.west + Math.min(width - 1, runEnd - 0.5) * cellLonStep;
+        const maxLat = height === 1 ? bounds.north : bounds.north - Math.max(0, y - 0.5) * cellLatStep;
+        const minLat = height === 1 ? bounds.south : bounds.north - Math.min(height - 1, y + 0.5) * cellLatStep;
 
-        const maxCellDepth = depth[idx];
+        let maxCellDepth = 0;
+        for (let column = x; column < runEnd; column++) maxCellDepth = Math.max(maxCellDepth, depth[y * width + column]);
 
         features.push({
           type: 'Feature',

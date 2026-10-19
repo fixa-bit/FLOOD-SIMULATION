@@ -6,7 +6,9 @@
 
 import { HydraulicSimulator } from './shallowWater';
 import { rasterizeBuildings, buildingWaterDepth } from './buildingObstacles';
-import { WorkerInMessage, WorkerOutMessage, SimulationConfig, OsmBuilding, OsmRoad } from '../types';
+import { sampleRoads, floodedRoadsKm, RoadSample } from '../analysis/roadExposure';
+import { EventAccumulator } from '../analysis/eventResults';
+import { WorkerInMessage, WorkerOutMessage, SimulationConfig, SimulationFrame, OsmBuilding, OsmRoad } from '../types';
 
 let isRunning = false;
 let shouldCancel = false;
@@ -58,10 +60,19 @@ function runSimulationWorker(
 ) {
   const obstacles = rasterizeBuildings(buildings ?? [], config.bounds, width, height);
   const simulator = new HydraulicSimulator(width, height, dx, dy, elevation, config, initialWaterDepth, obstacles.mask);
-  const assessFrame = (frame: import('../types').SimulationFrame) =>
-    assessImpacts(frame, buildings, roads, width, height, elevation, obstacles.exposureCells);
+  const roadSamples = sampleRoads(roads ?? [], config.bounds, width, height);
+  const event = new EventAccumulator(width * height, dx * dy, config.minWaterDepthThreshold);
+  event.update(simulator.depth);
+  const assessFrame = (frame: SimulationFrame) =>
+    assessImpacts(frame, buildings, roadSamples, elevation, obstacles.exposureCells);
   const totalDuration = config.duration;
   const outputInterval = Math.max(1, config.outputInterval || 30);
+  const start = config.hydrographStartSeconds ?? 0;
+  const eventDuration = config.hydrographDurationSeconds ?? 3600;
+  const forcingTimes = [start, start + eventDuration, config.rainfall.durationSeconds,
+    start + eventDuration * (config.inflowPreset === 'flash_flood' ? 0.15 : 0.35),
+    ...config.inflows.flatMap(i => (i.customHydrograph ?? []).map(p => p.timeSeconds + start)),
+  ].sort((a, b) => a - b);
 
   let nextOutputTime = 0.0;
   let totalFrames = 0;
@@ -96,10 +107,12 @@ function runSimulationWorker(
     }
 
     const dt = simulator.computeAdaptiveTimestep(maxDepth, maxVel);
-    const stepDt = Math.min(dt, nextOutputTime - simulator.currentTime, totalDuration - simulator.currentTime);
+    const nextForcing = forcingTimes.find(t => t > simulator.currentTime + 1e-8) ?? Infinity;
+    const stepDt = Math.min(dt, nextOutputTime - simulator.currentTime, totalDuration - simulator.currentTime, nextForcing - simulator.currentTime);
 
     // 2. Step physics
     simulator.step(stepDt);
+    event.update(simulator.depth, simulator.currentTime);
 
     // 3. Emit frame if interval reached
     if (simulator.currentTime >= nextOutputTime - 1e-4 || simulator.currentTime >= totalDuration - 1e-4) {
@@ -147,10 +160,31 @@ function runSimulationWorker(
   const finalFrame = simulator.generateFrame();
   assessFrame(finalFrame);
 
+  let maxDepth = 0, sumDepth = 0, wetCells = 0;
+  for (const d of event.peakDepth) {
+    maxDepth = Math.max(maxDepth, d);
+    sumDepth += d;
+    if (d >= config.minWaterDepthThreshold) wetCells++;
+  }
+  const envelopeFrame = { ...finalFrame, depth: event.peakDepth, stats: {
+    ...finalFrame.stats, maxDepth, meanDepth: sumDepth / Math.max(1, simulator.fluidCellCount),
+    floodedAreaKm2: wetCells * dx * dy / 1e6, totalWaterVolumeM3: sumDepth * dx * dy,
+  } };
+  assessFrame(envelopeFrame);
+
   self.postMessage({
     type: 'FINISHED',
     totalFrames,
     summaryStats: finalFrame.stats,
+    result: {
+      peakDepth: event.peakDepth, envelopeStats: envelopeFrame.stats,
+      maximumFloodedAreaKm2: event.maximumFloodedAreaKm2,
+      floodDepthThreshold: config.minWaterDepthThreshold,
+      arrivalTimeSeconds: event.arrivalTimeSeconds,
+      floodDurationSeconds: event.floodDurationSeconds,
+      wetAtEnd: event.wetAtEnd,
+      observedDurationSeconds: simulator.currentTime,
+    },
   } as WorkerOutMessage);
 
   isRunning = false;
@@ -160,11 +194,9 @@ function runSimulationWorker(
  * Assess live flood impact on buildings and roads for the current frame
  */
 function assessImpacts(
-  frame: any,
+  frame: SimulationFrame,
   buildings: OsmBuilding[] | undefined,
-  roads: OsmRoad[] | undefined,
-  width: number,
-  height: number,
+  roadSamples: RoadSample[],
   elevation: Float32Array,
   exposureCells: number[][]
 ) {
@@ -182,25 +214,6 @@ function assessImpacts(
     }
   }
 
-  let affectedRoadLengthMeters = 0;
-  if (roads && roads.length > 0) {
-    for (let i = 0; i < roads.length; i++) {
-      const r = roads[i];
-      if (r.coordinates.length > 0) {
-        // Sample midpoint
-        const midIdx = Math.floor(r.coordinates.length / 2);
-        const [lon, lat] = r.coordinates[midIdx];
-        // Approximate grid cell
-        const gx = Math.min(width - 1, Math.max(0, Math.floor((lon + 180) / 360 * width) % width));
-        const gy = Math.min(height - 1, Math.max(0, Math.floor((90 - lat) / 180 * height) % height));
-        const d = depth[gy * width + gx];
-        if (d >= floodThreshold) {
-          affectedRoadLengthMeters += r.lengthMeters;
-        }
-      }
-    }
-  }
-
   frame.stats.affectedBuildingsCount = affectedBuildings;
-  frame.stats.affectedRoadsKm = affectedRoadLengthMeters / 1000.0;
+  frame.stats.affectedRoadsKm = floodedRoadsKm(depth, roadSamples, floodThreshold);
 }

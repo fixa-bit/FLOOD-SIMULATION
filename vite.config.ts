@@ -16,9 +16,11 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    watch: { ignored: ['**/.tmp/**', '**/.npm-cache/**', '**/test-results/**', '**/playwright-report/**'] },
   },
   // Vitest configuration
   test: {
+    include: ['tests/**/*.test.ts'],
     globals: true,
     environment: 'node',
   },

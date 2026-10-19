@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { BoundingBox, DemData, OsmBuilding, OsmRoad, SimulationFrame, RiskLevel } from '../core/types';
+import { BoundingBox, DataSource, DemData, OsmBuilding, OsmRoad, SimulationFrame, RiskLevel } from '../core/types';
 import { createTerrainMaterial } from './terrainMaterial';
 import { createWaterMaterial } from './waterShader';
 import { loadDrapedTexture, TextureMode } from './textureFetcher';
@@ -8,6 +8,8 @@ import { calculateRiskLevel } from '../core/analysis/riskZones';
 import { rasterizeBuildings, buildingWaterDepth } from '../core/sim/buildingObstacles';
 
 export interface ViewerOptions {
+  sourceLines?: string[];
+  onTextureSource?: (source: DataSource) => void;
   container: HTMLDivElement;
   bounds: BoundingBox;
   dem: DemData;
@@ -38,6 +40,10 @@ export class FloodViewer {
   buildingExposureCells = new Map<string, number[]>();
   roads: OsmRoad[] = [];
   onInspectCell?: ViewerOptions['onInspectCell'];
+  onTextureSource?: ViewerOptions['onTextureSource'];
+  sourceLines: string[];
+  displaySourceLabel = 'Display imagery loading';
+  recordingCanvas: HTMLCanvasElement | null = null;
 
   // Three.js Core
   scene: THREE.Scene;
@@ -106,6 +112,8 @@ export class FloodViewer {
     this.buildings.forEach((building, i) => this.buildingExposureCells.set(building.id, obstacles.exposureCells[i]));
     this.roads = options.roads || [];
     this.onInspectCell = options.onInspectCell;
+    this.onTextureSource = options.onTextureSource;
+    this.sourceLines = options.sourceLines ?? [this.dem.source?.label ?? 'Terrain source unknown', 'Infrastructure source unknown'];
 
     this.clock = new THREE.Clock();
 
@@ -334,6 +342,7 @@ export class FloodViewer {
 
     if (mode === 'hillshade') {
       this.terrainMaterial.uniforms.uTextureMode.value = 2;
+      this.reportTextureSource({ kind: 'derived', label: 'Hillshade derived from terrain (not imagery)' });
       return;
     }
 
@@ -343,7 +352,9 @@ export class FloodViewer {
         this.satelliteTexture = await loadDrapedTexture(this.bounds, 'satellite');
       }
       if (this.satelliteTexture) {
+        if (this.activeTextureMode !== mode) return;
         this.terrainMaterial.uniforms.uTextureMap.value = this.satelliteTexture;
+        this.reportTextureSource(this.satelliteTexture.userData.source);
       }
       return;
     }
@@ -354,7 +365,9 @@ export class FloodViewer {
         this.osmTexture = await loadDrapedTexture(this.bounds, 'osm');
       }
       if (this.osmTexture) {
+        if (this.activeTextureMode !== mode) return;
         this.terrainMaterial.uniforms.uTextureMap.value = this.osmTexture;
+        this.reportTextureSource(this.osmTexture.userData.source);
       }
     }
   }
@@ -564,7 +577,29 @@ export class FloodViewer {
    */
   takeSnapshot(): string {
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL('image/png');
+    const canvas = document.createElement('canvas');
+    this.drawLabeledCanvas(canvas);
+    return canvas.toDataURL('image/png');
+  }
+
+  private reportTextureSource(source: DataSource) {
+    this.displaySourceLabel = source.label;
+    this.onTextureSource?.(source);
+  }
+
+  private drawLabeledCanvas(canvas: HTMLCanvasElement) {
+    const rendered = this.renderer.domElement;
+    const lines = [...this.sourceLines, this.displaySourceLabel];
+    const footer = lines.length * 20 + 12;
+    if (canvas.width !== rendered.width || canvas.height !== rendered.height + footer) {
+      canvas.width = rendered.width; canvas.height = rendered.height + footer;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(rendered, 0, 0);
+    ctx.fillStyle = '#020617'; ctx.fillRect(0, rendered.height, canvas.width, footer);
+    ctx.fillStyle = '#fde68a'; ctx.font = '13px sans-serif';
+    lines.forEach((line, i) => ctx.fillText(line, 8, rendered.height + 20 + i * 20, canvas.width - 16));
   }
 
   /**
@@ -574,7 +609,9 @@ export class FloodViewer {
     if (typeof MediaRecorder === 'undefined') return false;
 
     try {
-      const stream = (this.renderer.domElement as any).captureStream?.(30);
+      this.recordingCanvas = document.createElement('canvas');
+      this.drawLabeledCanvas(this.recordingCanvas);
+      const stream = this.recordingCanvas.captureStream?.(30);
       if (!stream) return false;
 
       this.recordedChunks = [];
@@ -589,6 +626,7 @@ export class FloodViewer {
       this.mediaRecorder.start();
       return true;
     } catch {
+      this.recordingCanvas = null;
       return false;
     }
   }
@@ -607,6 +645,8 @@ export class FloodViewer {
       a.download = `floodsim_record_${Date.now()}.webm`;
       a.click();
       URL.revokeObjectURL(url);
+      this.mediaRecorder?.stream.getTracks().forEach(track => track.stop());
+      this.recordingCanvas = null;
     };
 
     this.mediaRecorder.stop();
@@ -644,6 +684,7 @@ export class FloodViewer {
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+    if (this.recordingCanvas) this.drawLabeledCanvas(this.recordingCanvas);
   };
 
   /**

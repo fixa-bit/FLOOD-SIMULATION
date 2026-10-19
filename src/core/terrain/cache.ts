@@ -3,6 +3,7 @@
  * Enables instant reloads for previously selected areas.
  */
 
+import { DataSource } from '../types';
 const DB_NAME = 'floodsim_cache_db';
 const DB_VERSION = 1;
 const STORE_DEM = 'dem_tiles';
@@ -41,19 +42,20 @@ export function generateCacheKey(
   return `${west.toFixed(4)}_${south.toFixed(4)}_${east.toFixed(4)}_${north.toFixed(4)}_${gridSize}`;
 }
 
-export async function getCachedDem(key: string): Promise<Float32Array | null> {
+export async function getCachedDem(key: string): Promise<{ elevation: Float32Array; source: DataSource } | null> {
   const db = await openDatabase();
   if (!db) return null;
 
   return new Promise((resolve) => {
     try {
       const transaction = db.transaction(STORE_DEM, 'readonly');
+      transaction.oncomplete = () => db.close();
       const store = transaction.objectStore(STORE_DEM);
       const request = store.get(key);
 
       request.onsuccess = () => {
-        if (request.result && request.result.elevation) {
-          resolve(new Float32Array(request.result.elevation));
+        if (request.result?.elevation && request.result.source) {
+          resolve({ elevation: new Float32Array(request.result.elevation), source: request.result.source });
         } else {
           resolve(null);
         }
@@ -65,7 +67,7 @@ export async function getCachedDem(key: string): Promise<Float32Array | null> {
   });
 }
 
-export async function setCachedDem(key: string, elevation: Float32Array): Promise<void> {
+export async function setCachedDem(key: string, elevation: Float32Array, source: DataSource): Promise<void> {
   const db = await openDatabase();
   if (!db) return;
 
@@ -78,9 +80,10 @@ export async function setCachedDem(key: string, elevation: Float32Array): Promis
         key,
         elevation: elevation.buffer,
         timestamp: Date.now(),
+        source,
       });
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => resolve();
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => { db.close(); resolve(); };
     } catch {
       resolve();
     }

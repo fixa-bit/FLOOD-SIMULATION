@@ -72,7 +72,7 @@ export function initPostMessageBridge(): () => void {
   sendToParent({
     source: 'FloodSim',
     type: 'ready',
-    payload: { version: '1.0.0', status: 'ready' },
+    payload: { version: '2.0.0', status: 'ready' },
   });
 
   // Subscribe to store updates to broadcast progress and finished events

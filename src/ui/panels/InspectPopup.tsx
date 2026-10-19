@@ -9,9 +9,10 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useFloodStore } from '../store/useFloodStore';
+import { TimingDetails } from './EventMaps';
 
 export const InspectPopup: React.FC = () => {
-  const { inspectedCell, clearInspectedCell } = useFloodStore();
+  const { inspectedCell, clearInspectedCell, result, runInputs } = useFloodStore();
 
   if (!inspectedCell) return null;
 
@@ -116,6 +117,7 @@ export const InspectPopup: React.FC = () => {
         </div>
       </div>
 
+      {result && runInputs && <TimingDetails result={result} cell={inspectedCell.gridY * runInputs.dem.width + inspectedCell.gridX} />}
       {/* Depth over time hydrograph chart */}
       <div className="flex flex-col gap-1.5 mt-1">
         <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1">

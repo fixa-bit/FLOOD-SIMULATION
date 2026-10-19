@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 're
 import { FloodViewer, CameraPreset } from '../../viewer/FloodViewer';
 import { useFloodStore } from '../store/useFloodStore';
 import { Loader2 } from 'lucide-react';
+import { dataSources } from '../../core/analysis/dataSources';
 
 export interface FloodViewport3DHandle {
   setCameraPreset: (preset: CameraPreset) => void;
@@ -18,6 +19,7 @@ export const FloodViewport3D = forwardRef<FloodViewport3DHandle>((_, ref) => {
     bounds,
     buildings,
     roads,
+    infrastructureSource,
     frames,
     currentFrameIndex,
     verticalExaggeration,
@@ -26,6 +28,7 @@ export const FloodViewport3D = forwardRef<FloodViewport3DHandle>((_, ref) => {
     maxDepthLegend,
     layersVisible,
     setInspectedCell,
+    setImagerySource,
     status,
     progressStage,
   } = useFloodStore();
@@ -35,6 +38,8 @@ export const FloodViewport3D = forwardRef<FloodViewport3DHandle>((_, ref) => {
   // Initialize FloodViewer when DEM is loaded
   useEffect(() => {
     if (!containerRef.current || !dem) return;
+    let active = true;
+    setImagerySource(undefined);
 
     // Dispose old viewer
     if (viewerRef.current) {
@@ -48,6 +53,9 @@ export const FloodViewport3D = forwardRef<FloodViewport3DHandle>((_, ref) => {
       dem,
       buildings,
       roads,
+      sourceLines: [dataSources({ dem, buildings, roads, infrastructureSource }).terrain.label,
+        dataSources({ dem, buildings, roads, infrastructureSource }).infrastructure.label],
+      onTextureSource: source => { if (active) setImagerySource(source); },
       onInspectCell: (data) => {
         setInspectedCell(data);
       },
@@ -62,6 +70,7 @@ export const FloodViewport3D = forwardRef<FloodViewport3DHandle>((_, ref) => {
     viewer.setMaxDepthLegend(maxDepthLegend);
 
     return () => {
+      active = false;
       viewer.dispose();
       viewerRef.current = null;
     };

@@ -90,6 +90,28 @@ Executes the Vitest test suite testing DEM tile decoding, exact mass conservatio
 
 ## Two Sample Test Scenarios
 
+### Saved scenarios and comparisons
+
+**Arrival and duration maps:** After completing or loading a run, choose **Arrival & duration maps** in the Scenario workspace. Click the map, use arrow keys on the map, or enter longitude/latitude to inspect the nearest grid sample. Arrival is the first threshold crossing in seconds from run start; a zero arrival means already wet at the start, and gray means never reached during the observed run. Duration sums all periods at or above the displayed flood-depth threshold, including repeated flooding. Threshold crossings are estimated linearly between solver steps, independently of playback frames. A location still wet at run end is marked explicitly; its eventual duration is not yet known. Download timing grids as JSON, including bounds, grid layout, threshold, observation length, wet-at-end flags, and data sources. The regular 3D cell inspection also shows timing. Saved-run comparison includes arrival/duration views on a shared time scale. Compare equal observation lengths when comparing durations. Older results require a rerun to generate timing maps.
+
+**Event timing:** Preset river inflows have separate **Event starts** and **Event duration** controls. Extending **Simulated Duration** preserves the event window and peak time, allowing additional observation/recession. Preset inflow is zero outside that event window, including constant inflow; custom hydrographs use their own timestamps relative to event start and stop at the final timestamp. Rainfall retains its own duration from run start. Existing saved configurations without explicit event timing retain their original run duration as the event duration when loaded. Low-level solver configs that omit event timing use a fixed one-hour event; new UI scenarios use the preset area's recommended event length.
+
+**Data sources:** A persistent strip identifies terrain, infrastructure, and display imagery, including synthetic demo terrain/assets, partial terrain with artificial 50 m patches, and procedural display textures that are not satellite photographs. Labels survive terrain caching and saved scenarios and accompany comparison views, JSON reports, GeoJSON metadata, timing-grid downloads, PNG snapshots, and video recordings. Old terrain cache entries without provenance are refetched; older supplied/saved inputs remain explicitly unknown rather than being labeled as real. Display imagery is cosmetic and is not used by the hydraulic solver.
+
+The **Scenario workspace** in the control panel stores scenarios in this browser's IndexedDB:
+
+1. Name the scenario and choose **Save inputs** to keep a draft, or run the simulation and choose **Save completed run** to keep the original run inputs, terrain, infrastructure, results, and playback frames.
+2. Choose **Load** to restore a scenario without downloading terrain again. **Duplicate & edit** restores the same spatial inputs and clears the result so you can change rainfall or river inflow and run a new scenario. Saves create separate entries; the baseline remains unchanged.
+3. Select a baseline and candidate and choose **Compare saved runs**. Compare maximum-depth maps, a candidate-minus-baseline depth map, synchronized playback by elapsed simulation time, and whole-event impact metrics. Maps require identical area, grid, terrain, initial water, infrastructure, and flood threshold. Playback uses recorded frames and ends at the shorter run.
+
+Event maximum depths are accumulated at every solver step, independently of the playback output interval. The report and GeoJSON extent include flooding that receded before the last frame. **Area flooded at any time** is the union of all flooded locations; **maximum simultaneous flooded area** is the largest area flooded in a single solver step. Buildings and road length affected at any time are assessed on the maximum-depth envelope. Roads are clipped to the selected bounds and split along grid-cell boundaries; only submerged portions count, using a 0.3 m threshold. These are hydraulic exposure estimates, not bridge-deck or road-passability assessments.
+
+The report retains final simultaneous statistics under `stats` and `finalStateStats`. `inundationStats.peakWaterDepthMeters`, `inundationStats.floodedAreaKm2`, and `impactStats` describe the whole event; `inundationStats.maximumSimultaneousFloodedAreaKm2` distinguishes instantaneous extent. Mean depth, water volume, and mass error in `inundationStats` remain final-state values. The dashboard can switch between **Whole event** and **Playback frame**.
+
+Saved runs keep the inputs used when the simulation started, even if controls are edited afterward. Saving inputs instead captures the current controls. Storage is local to this browser and origin; clearing browser data removes the library. Full playback can consume significant storage, and failed saves show an error.
+
+Run `npm test` for solver, road exposure, report, and persistence tests. `npm run test:e2e` exercises the browser scenario workflow. The browser test uses installed Microsoft Edge on Windows; on other systems install Playwright Chromium first (`npx playwright install chromium`). Set `PLAYWRIGHT_CHANNEL` to override the browser channel.
+
 ### Sample 1: Swat River Valley (Pakistan)
 - **Location**: Mingora / Kabal, Khyber Pakhtunkhwa (`34.78° N, 72.34° E`)
 - **Recommended Inflow**: `850 m³/s` base discharge, `2.8x` peak multiplier
