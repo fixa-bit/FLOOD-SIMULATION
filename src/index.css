@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --flood-surface: #0f172a;
+  --flood-panel: rgba(15, 23, 42, 0.92);
+  --flood-panel-border: rgba(51, 65, 85, 0.7);
+  --flood-primary: #0ea5e9;
+  --flood-primary-hover: #0284c7;
+  --flood-accent: #38bdf8;
+  --flood-water: #38bdf8;
+  --flood-text: #f8fafc;
+  --flood-muted: #94a3b8;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #020617;
+  color: #f8fafc;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Custom sleek scrollbar for panels */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.7);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 165, 233, 0.6);
+}
